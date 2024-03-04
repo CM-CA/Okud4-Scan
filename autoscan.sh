@@ -114,22 +114,37 @@ descubrir_subdominios() {
     echo "Descubriendo subdominios de $url"
     echo
     
-    # Diccionario para las DNS
-    diccionario="/usr/share/seclists/Discovery/DNS/bitquark-subdomains-top100000.txt"
-    echo $diccionario
-    echo $url
+    # Opción para elegir el diccionario
+    read -p "¿Desea usar su propio diccionario (1) o uno por defecto (2)? Ingrese el número correspondiente: " opcion_diccionario
+
+    if [ "$opcion_diccionario" -eq 1 ]; then
+        read -p "Por favor, ingrese la ruta de su diccionario: " ruta_diccionario
+        diccionario="$ruta_diccionario"
+    elif [ "$opcion_diccionario" -eq 2 ]; then
+        diccionario="/usr/share/seclists/Discovery/DNS/bitquark-subdomains-top100000.txt"
+    else
+        echo "Opción no válida. Por favor, ingrese 1 para su propio diccionario o 2 para uno por defecto."
+        return 1
+    fi
+
+    echo "Diccionario seleccionado: $diccionario"
+    echo "URL: $url"
     
     # Preguntar al usuario si prefiere usar "http://" o "https://"
     echo "¿Deseas usar 'http://' o 'https://' para escanear los directorios? (http/https)"
     read protocolo
     
-    # Verificar la respuesta del usuario y ejecutar dirb con el protocolo seleccionado
+    # Verificar la respuesta del usuario y ejecutar ffuf con el protocolo seleccionado
     case $protocolo in
         "http")
-            ffuf -w $diccionario -u http://$url -H "Host:FUZZ.$url" -c -mc 200 > ./$host/subdominios/subdominios.txt
+            ffuf -w "$diccionario" -u "http://$url" -H "Host:FUZZ.$url" -c -mc 200 > "./$host/subdominios/subdominios.txt"
         ;;
         "https")
-            ffuf -w $diccionario -u https://$url -H "Host:FUZZ.$url" -c -mc 200 > ./$host/subdominios/subdominios.txt
+            ffuf -w "$diccionario" -u "https://$url" -H "Host:FUZZ.$url" -c -mc 200 > "./$host/subdominios/subdominios.txt"
+        ;;
+        *)
+            echo "Protocolo no válido. Por favor, seleccione 'http' o 'https'."
+            return 1
         ;;
     esac
 }
