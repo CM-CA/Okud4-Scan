@@ -12,8 +12,7 @@ echo "#     # #  #   #    # #    # ####### "
 echo "#     # #   #  #    # #    #      #  "
 echo "####### #    #  ####  #####       #  "
 
-# Funcion para obtener la ip
-
+# Función para obtener la IP
 obtener_direccion_ip() {
     echo "Ingresa la URL o la dirección IP a escanear:"
     read input
@@ -38,7 +37,23 @@ obtener_direccion_ip() {
         
         if [ -z "$ip" ]; then
             echo "No se pudo obtener una dirección IPv4 para $dominio."
-            tipo="Error"
+            echo "¿Conoces la dirección IP de $dominio? (s/n):"
+            read respuesta
+            
+            if [[ $respuesta == "s" || $respuesta == "S" ]]; then
+                echo "Ingresa la dirección IP de $dominio:"
+                read ip_manual
+                if [[ $ip_manual =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                    host=$ip_manual
+                    tipo="URL"
+                else
+                    echo "La dirección IP proporcionada no es válida. Saliendo..."
+                    exit 1
+                fi
+            else
+                echo "Saliendo..."
+                exit 1
+            fi
         else
             host=$ip
             url=$dominio
@@ -49,9 +64,8 @@ obtener_direccion_ip() {
     echo "La dirección IP obtenida es: $host"
 }
 
-# Funcion para crear carpeta de trabajo
-
-crear_directorio (){
+# Función para crear carpeta de trabajo
+crear_directorio() {
     echo "Creando directorio de trabajo"
     echo
     
@@ -80,7 +94,7 @@ escanear_puertos() {
         # Scaneo con nmap
         echo "Realizando scaneo de puertos con Nmap en el host $host..."
         echo
-        sudo nmap -sS -sV -O -p- -T4 --open -vvv -oA ./$host/nmap/resultado $host
+        sudo nmap -p- -sS --min-rate 5000 -vvv -oN ./$host/nmap/resultado $host
         
     else
         echo "Error: El host $host no es correcto o está caído."
@@ -91,28 +105,117 @@ escanear_directorios() {
     echo "Realizando búsqueda de directorios de $host"
     echo
     
-    # Preguntar al usuario si prefiere usar "http://" o "https://"
-    echo "¿Deseas usar 'http://' o 'https://' para escanear los directorios? (http/https)"
-    read protocolo
+    # Solicitar la URL al usuario
+    echo "Introduce la URL completa (ej. http://example.com): "
+    read url
+
+    # Preguntar al usuario si desea realizar un escaneo de puertos con Nmap
+    read -p "¿Deseas realizar un escaneo de puertos con Nmap? (s/n): " opcion_escaneo
+    if [ "$opcion_escaneo" = "s" ]; then
+        # Ejecutar un escaneo de puertos con Nmap y guardar el resultado en la ruta designada
+        echo "Realizando escaneo de puertos con Nmap..."
+        sudo nmap -p- --open -sS --min-rate 5000 -oN ./$host/nmap/resultado "$host"
+        echo "Escaneo de puertos completado. Resultados guardados en ./$host/nmap/resultado"
+    elif [ "$opcion_escaneo" != "n" ]; then
+        echo "Opción no válida. Por favor, ingresa 's' para realizar el escaneo o 'n' para omitirlo."
+        return 1
+    fi
+
+    # Verificar si el archivo de resultados de Nmap existe
+    if [ ! -f ./$host/nmap/resultado ]; then
+        echo "No se encontró el archivo de resultados de Nmap."
+        echo "Por favor, realiza un escaneo Nmap primero."
+        return 1
+    fi
     
-    # Verificar la respuesta del usuario y ejecutar dirb con el protocolo seleccionado
-    case $protocolo in
-        "http")
-            dirb "http://$host" -N 302 -o ./$host/directorios/directorios.txt
-        ;;
-        "https")
-            dirb "https://$host" -N 302 -o ./$host/directorios/directorios.txt
-        ;;
-        *)
-            echo "Opción no válida. Se usará 'http://' por defecto."
-            dirb "http://$host" -N 302 -o ./$host/directorios/directorios.txt
-        ;;
-    esac
+    # Obtener los puertos abiertos del archivo de resultados de Nmap
+    puertos=$(grep "open" ./$host/nmap/resultado | awk '{print $1}')
+    
+    # Mostrar los puertos abiertos al usuario
+    echo "Puertos abiertos:"
+    echo "$puertos"
+    echo
+    
+    # Preguntar al usuario que puerto desea escanear
+    echo "Introduce el número de puerto que deseas escanear: "
+    read puerto
+    
+    # Validar que el puerto proporcionado por el usuario esté en la lista de puertos abiertos
+    if ! echo "$puertos" | grep -q "\<$puerto\>"; then
+        echo "El puerto $puerto no está abierto."
+        return 1
+    fi
+    
+    echo "URL: $url"
+    echo "Puerto: $puerto"
+    echo
+    
+    # Ejecutar dirb con la URL y el puerto proporcionados
+    diccionario="/usr/share/dirb/wordlists/big.txt"
+    dirb "$url:$puerto" $diccionario -o ./$host/directorios/directorios.txt
 }
 
 descubrir_subdominios() {
-    echo "Descubriendo subdominios de $url"
+    echo "Ingresa la URL o la dirección IP para descubrir subdominios:"
+    read input
+    
+    # Extraer el dominio de una URL si es necesario
+    if [[ $input =~ ^https?:// ]]; then
+        dominio=$(echo $input | sed -E 's#^https?://([^/]+).*#\1#')
+    else
+        dominio=$input
+    fi
+    
+    echo "Descubriendo subdominios de $dominio"
     echo
+    
+    # Verificar si gobuster está instalado
+    if ! command -v gobuster &> /dev/null; then
+        echo "gobuster no está instalado. Instalándolo ahora..."
+        
+        # Detectar el sistema operativo y usar el gestor de paquetes adecuado
+        if [ -f /etc/debian_version ]; then
+            sudo apt-get update
+            sudo apt-get install -y gobuster
+        elif [ -f /etc/arch-release ]; then
+            sudo pacman -Syu gobuster --noconfirm
+        else
+            echo "Sistema operativo no compatible para instalación automática de gobuster."
+            return 1
+        fi
+    fi
+    
+    # Verificar si el archivo de resultados de Nmap existe
+    if [ ! -f ./$host/nmap/resultado ]; then
+        read -p "No se encontró el archivo de resultados de Nmap. ¿Deseas realizar un escaneo de puertos con Nmap? (s/n): " opcion_escaneo
+        if [ "$opcion_escaneo" = "s" ]; then
+            # Ejecutar un escaneo de puertos con Nmap y guardar el resultado en la ruta designada
+            echo "Realizando escaneo de puertos con Nmap..."
+            nmap -p- -sS --min-rate 5000 -oN ./$host/nmap/resultado "$host"
+            echo "Escaneo de puertos completado. Resultados guardados en ./$host/nmap/resultado"
+        elif [ "$opcion_escaneo" != "n" ]; then
+            echo "Opción no válida. Por favor, ingresa 's' para realizar el escaneo o 'n' para omitirlo."
+            return 1
+        fi
+    fi
+    
+    # Obtener los puertos abiertos del archivo de resultados de Nmap
+    puertos=$(grep "open" ./$host/nmap/resultado | awk '{print $1}')
+    
+    # Mostrar los puertos abiertos al usuario
+    echo "Puertos abiertos:"
+    echo "$puertos"
+    echo
+    
+    # Preguntar al usuario que puerto desea escanear
+    echo "Introduce el número de puerto que deseas escanear: "
+    read puerto
+    
+    # Validar que el puerto proporcionado por el usuario esté en la lista de puertos abiertos
+    if ! echo "$puertos" | grep -q "\<$puerto\>"; then
+        echo "El puerto $puerto no está abierto."
+        return 1
+    fi
     
     # Opción para elegir el diccionario
     read -p "¿Desea usar su propio diccionario (1) o uno por defecto (2)? Ingrese el número correspondiente: " opcion_diccionario
@@ -121,32 +224,24 @@ descubrir_subdominios() {
         read -p "Por favor, ingrese la ruta de su diccionario: " ruta_diccionario
         diccionario="$ruta_diccionario"
     elif [ "$opcion_diccionario" -eq 2 ]; then
-        diccionario="/usr/share/seclists/Discovery/DNS/bitquark-subdomains-top100000.txt"
+        diccionario="/usr/share/wordlists/subdomains-top1million-110000.txt"
+        # Comprobar si el diccionario por defecto existe
+        if [ ! -f "$diccionario" ]; then
+            echo "El diccionario por defecto no se encontró. Por favor, ingrese la ruta de su diccionario:"
+            read ruta_diccionario
+            diccionario="$ruta_diccionario"
+        fi
     else
         echo "Opción no válida. Por favor, ingrese 1 para su propio diccionario o 2 para uno por defecto."
         return 1
     fi
 
     echo "Diccionario seleccionado: $diccionario"
-    echo "URL: $url"
+    echo "Dominio: $dominio"
+    echo "Puerto: $puerto"
     
-    # Preguntar al usuario si prefiere usar "http://" o "https://"
-    echo "¿Deseas usar 'http://' o 'https://' para escanear los directorios? (http/https)"
-    read protocolo
-    
-    # Verificar la respuesta del usuario y ejecutar ffuf con el protocolo seleccionado
-    case $protocolo in
-        "http")
-            ffuf -w "$diccionario" -u "http://$url" -H "Host:FUZZ.$url" -c -mc 200 > "./$host/subdominios/subdominios.txt"
-        ;;
-        "https")
-            ffuf -w "$diccionario" -u "https://$url" -H "Host:FUZZ.$url" -c -mc 200 > "./$host/subdominios/subdominios.txt"
-        ;;
-        *)
-            echo "Protocolo no válido. Por favor, seleccione 'http' o 'https'."
-            return 1
-        ;;
-    esac
+    # Ejecutar gobuster para descubrir subdominios
+    gobuster dns -d "$dominio" -w "$diccionario" -o "./$host/subdominios/subdominios.txt" --delay 0
 }
 
 escanear_lfi_rfi_vuln () {
